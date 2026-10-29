@@ -1,32 +1,41 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-// Memperluas tipe Request bawaan Express agar bisa menyimpan data user dari token
+const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_ecupfish';
+
 export interface AuthRequest extends Request {
   user?: any;
 }
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
-  // Mengambil token dari header 'Authorization'
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Format yang dikirim: "Bearer <token>"
-
+  const token = req.header('Authorization')?.split(' ')[1];
+  
   if (!token) {
-    res.status(401).json({ message: 'Akses ditolak. Token tidak ditemukan!' });
+    res.status(401).json({ message: 'Akses ditolak. Token tidak ditemukan.' });
     return;
   }
 
-  const secretKey = process.env.JWT_SECRET || 'fallback_secret_key';
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; 
+    next();
+  } catch (error) {
+    res.status(403).json({ message: 'Token tidak valid.' });
+  }
+};
 
-  // Memverifikasi apakah token asli dan belum kedaluwarsa
-  jwt.verify(token, secretKey, (err, decodedUser) => {
-    if (err) {
-      res.status(403).json({ message: 'Token tidak valid atau sudah kedaluwarsa!' });
-      return;
-    }
-    
-    // Jika valid, simpan data user ke dalam request agar bisa dipakai di controller
-    req.user = decodedUser; 
-    next(); // Izinkan masuk ke rute selanjutnya
-  });
+export const isSuperAdmin = (req: AuthRequest, res: Response, next: NextFunction): void => {
+  if (req.user?.role !== 'SUPERADMIN') {
+    res.status(403).json({ message: 'Akses ditolak! Khusus Super Admin.' });
+    return;
+  }
+  next();
+};
+
+export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction): void => {
+  if (req.user?.role !== 'ADMIN') {
+    res.status(403).json({ message: 'Akses ditolak! Khusus Pembudidaya.' });
+    return;
+  }
+  next();
 };

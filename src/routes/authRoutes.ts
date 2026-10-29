@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { register, login, getProfile, requestPasswordReset, resetPassword } from '../controllers/authController';
-import { authenticateToken } from '../middleware/authMiddleware';
+import { authenticateToken, isSuperAdmin, isAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
 
-// rute login dan register
+// Rute Publik (Tidak butuh token)
 router.post('/register', register);
 router.post('/login', login);
-
-// rute untuk mendapatkan profil pengguna
-router.get('/profile', authenticateToken, getProfile);
 router.post('/forgot-password', requestPasswordReset);
 router.post('/reset-password', resetPassword);
+
+// Rute Terlindungi (Butuh token, berlaku untuk semua jenis akun)
+router.get('/profile', authenticateToken, getProfile);
 
 export default router;
