@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/server.js",
-"scripts": {
-"start": "node dist/server.js",
-"dev": "tsx watch src/server.ts",
-"build": "tsc",
-"postinstall": "prisma generate"
-},
-"prisma": {
-"seed": "tsx prisma/seed.ts"
-},
+  "scripts": {
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "postinstall": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "keywords": [],
   "type": "commonjs",
   "dependencies": {
