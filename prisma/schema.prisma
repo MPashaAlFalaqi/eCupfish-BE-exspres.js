@@ -3,23 +3,183 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql" 
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 enum Role {
   SUPERADMIN
-  ADMIN       // Untuk Pembudidaya
-  BUYER       // Untuk Pembeli
+  ADMIN // pembudidaya (seller)
+  BUYER // pembeli
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum Grade {
+  CONTEST
+  PLAYER
+  PET
+}
+
+enum ProductStatus {
+  AVAILABLE
+  SOLD_OUT
+  INACTIVE
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+}
+
+enum OtpPurpose {
+  RESET_PASSWORD
+  VERIFY_EMAIL
+}
+
+enum StockLogType {
+  AUTO
+  MANUAL
 }
 
 model User {
-  id          Int      @id @default(autoincrement())
-  name        String
-  email       String   @unique
-  phoneNumber String?
-  password    String
-  role        Role     @default(BUYER) // Default jika mendaftar biasa adalah pembeli
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              Int        @id @default(autoincrement())
+  name            String
+  username        String?    @unique
+  email           String     @unique
+  emailVerifiedAt DateTime?
+  phoneNumber     String?    @unique
+  password        String
+  photoUrl        String?
+  role            Role       @default(BUYER)
+  status          UserStatus @default(ACTIVE)
+  createdById     Int?
+  createdBy       User?      @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers    User[]     @relation("UserCreatedBy")
+  lastLoginAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  sellerProfile SellerProfile?
+  refreshTokens RefreshToken[]
+  otpCodes      OtpCode[]
+  products      Product[]
+}
+
+model SellerProfile {
+  userId         Int      @id
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName   String
+  description    String?  @db.Text
+  logoUrl        String?
+  location       String?
+  originAddress  String?  @db.Text
+  city           String?
+  postalCode     String?
+  openTime       String? // contoh 08:00
+  closeTime      String? // contoh 17:00
+  notifyNewOrder Boolean  @default(true)
+  notifyClaim    Boolean  @default(true)
+  notifyLowStock Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model OtpCode {
+  id        Int        @id @default(autoincrement())
+  userId    Int?
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target    String
+  purpose   OtpPurpose
+  codeHash  String
+  attempts  Int        @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([target, purpose])
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  slug      String    @unique
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  products  Product[]
+}
+
+model Product {
+  id                Int           @id @default(autoincrement())
+  sellerId          Int
+  seller            User          @relation(fields: [sellerId], references: [id])
+  categoryId        Int
+  category          Category      @relation(fields: [categoryId], references: [id])
+  name              String
+  grade             Grade
+  tier              String? // kelas kualitas: S, A, B, atau C
+  ageMonths         Int?
+  price             Int
+  stock             Int           @default(0)
+  lowStockThreshold Int           @default(5)
+  autoStatus        Boolean       @default(true)
+  status            ProductStatus @default(AVAILABLE)
+  listed            Boolean       @default(true)
+  tankLocation      String?
+  healthDescription String?       @db.Text
+  notes             String?       @db.Text
+  ratingAvg         Float         @default(0)
+  reviewCount       Int           @default(0)
+  deletedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  media     ProductMedia[]
+  stockLogs StockLog[]
+
+  @@index([sellerId, status])
+  @@index([categoryId, grade, price])
+}
+
+model ProductMedia {
+  id        Int       @id @default(autoincrement())
+  productId Int
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type      MediaType @default(PHOTO)
+  url       String
+  isCover   Boolean   @default(false)
+  sortOrder Int       @default(0)
+
+  @@index([productId])
+}
+
+model StockLog {
+  id        Int          @id @default(autoincrement())
+  productId Int
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type      StockLogType
+  oldStatus String?
+  newStatus String?
+  oldStock  Int?
+  newStock  Int?
+  reason    String?
+  byUserId  Int?
+  createdAt DateTime     @default(now())
+
+  @@index([productId, createdAt])
 }
