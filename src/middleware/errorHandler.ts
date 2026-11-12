@@ -23,6 +23,15 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(404).json({ message: 'Data tidak ditemukan.' });
     return;
   }
+
+    if ((err as { name?: string })?.name === 'MulterError') {
+    const kode = (err as { code?: string }).code;
+    const pesan =
+      kode === 'LIMIT_FILE_SIZE' ? 'Ukuran berkas maksimal 20 MB.' : 'Berkas tidak dapat diunggah.';
+    res.status(400).json({ message: pesan });
+    return;
+  }
+
   console.error(err);
   res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
 };
