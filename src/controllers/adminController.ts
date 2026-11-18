@@ -65,7 +65,7 @@ export const listUsers = async (req: Request, res: Response) => {
 
   const [total, rows] = await Promise.all([
     prisma.user.count({ where }),
-    prisma.user.findMany(userFindManyArgs as any),
+    prisma.user.findMany(userFindManyArgs),
   ]);
   res.json({
     data: rows.map((u) => ({

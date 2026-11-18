@@ -7,8 +7,14 @@ import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/authRoutes';
 import meRoutes from './routes/meRoutes';
 import adminRoutes from './routes/adminRoutes';
+import catalogRoutes from './routes/catalogRoutes';
+import sellerRoutes from './routes/sellerRoutes';
+import { UPLOAD_ROOT } from './middleware/upload';
 
 const app = express();
+
+app.use(cors());
+app.use(express.json());
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: env.corsOrigins }));
@@ -28,6 +34,9 @@ app.get('/', (_req, res) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/uploads', express.static(UPLOAD_ROOT));
+app.use('/api', catalogRoutes);
+app.use('/api/seller', sellerRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ message: 'Endpoint tidak ditemukan.' });
