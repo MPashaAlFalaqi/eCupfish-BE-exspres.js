@@ -14,6 +14,7 @@ enum Role {
 }
 
 enum UserStatus {
+  PENDING_VERIFICATION
   ACTIVE
   INACTIVE
   BLOCKED
@@ -27,6 +28,7 @@ enum Grade {
 
 enum ProductStatus {
   AVAILABLE
+  LOW_STOCK
   SOLD_OUT
   INACTIVE
 }
@@ -45,6 +47,49 @@ enum StockLogType {
   AUTO
   MANUAL
 }
+
+enum OrderSource {
+  DIRECT
+  AUCTION
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PACKING
+  SHIPPED
+  COMPLETED
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PROCESSING
+  IN_TRANSIT
+  DELIVERED
+  DELAYED
+}
+
+enum AuctionStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PayoutStatus {
+  IN_ESCROW
+  RELEASED
+  REFUNDED
+}
+
+
 
 model User {
   id              Int        @id @default(autoincrement())
@@ -68,6 +113,25 @@ model User {
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
   products      Product[]
+  bankAccounts  BankAccount[]
+  addresses     UserAddress[]
+  auditLogs     AuditLog[] @relation("AdminAuditLogs")
+  statusReason String?
+  cartItems     CartItem[]
+  buyerOrders   Order[]    @relation("BuyerOrders")
+  sellerOrders  Order[]    @relation("SellerOrders")
+  sellerAuctions      Auction[]       @relation("SellerAuctions")
+  wonAuctions         Auction[]       @relation("WonAuctions")
+  auctionBids         AuctionBid[]
+  buyerConversations  Conversation[]  @relation("BuyerConversations")
+  sellerConversations Conversation[]  @relation("SellerConversations")
+  sentMessages        Message[]
+  buyerClaims         WarrantyClaim[] @relation("BuyerClaims")
+  sellerClaims        WarrantyClaim[] @relation("SellerClaims")
+  buyerReviews        Review[]        @relation("BuyerReviews")
+  sellerReviews       Review[]        @relation("SellerReviews")
+  payouts             SellerPayout[]
+  notifications       Notification[]
 }
 
 model SellerProfile {
@@ -133,11 +197,15 @@ model Product {
   name              String
   grade             Grade
   tier              String? // kelas kualitas: S, A, B, atau C
+  colorPattern      String? // Pola warna hasil AI / manual (mis. Blue Rim, Galaxy Koi)
+  aiConfidence      Float? // Skor keyakinan AI (0 - 100)
+  aiRawResult       Json? // Detail probabilitas & catatan hasil deteksi AI
   ageMonths         Int?
   price             Int
   stock             Int           @default(0)
   lowStockThreshold Int           @default(5)
   autoStatus        Boolean       @default(true)
+  strictThreshold   Boolean       @default(false)
   status            ProductStatus @default(AVAILABLE)
   listed            Boolean       @default(true)
   tankLocation      String?
@@ -151,6 +219,11 @@ model Product {
 
   media     ProductMedia[]
   stockLogs StockLog[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  auctions      Auction[]
+  conversations Conversation[]
+  reviews       Review[]
 
   @@index([sellerId, status])
   @@index([categoryId, grade, price])
@@ -182,4 +255,270 @@ model StockLog {
   createdAt DateTime     @default(now())
 
   @@index([productId, createdAt])
+}
+
+model BankAccount {
+  id            Int      @id @default(autoincrement())
+  sellerId      Int
+  seller        User     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  bankName      String
+  accountNumber String
+  accountHolder String
+  isPrimary     Boolean  @default(false)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([sellerId])
+}
+
+model UserAddress {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label         String   @default("Rumah")
+  recipientName String
+  phoneNumber   String
+  fullAddress   String   @db.Text
+  city          String
+  province      String
+  postalCode    String
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  adminId     Int
+  admin       User     @relation("AdminAuditLogs", fields: [adminId], references: [id])
+  actionType  String   // APPROVE_SELLER, SUSPEND_SELLER, BLOCK_BUYER, CREATE_USER, UPDATE_USER, DELETE_USER
+  title       String
+  detail      String   @db.Text
+  targetId    Int?
+  targetName  String
+  targetRole  Role
+  variant     String   @default("blue") // green, red, amber, blue
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  buyerId   Int
+  buyer     User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  selected  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([buyerId, productId])
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  orderCode       String      @unique // contoh: PS-2095
+  buyerId         Int
+  buyer           User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  sellerId        Int
+  seller          User        @relation("SellerOrders", fields: [sellerId], references: [id])
+  source          OrderSource @default(DIRECT)
+  status          OrderStatus @default(PENDING_PAYMENT)
+  recipientName   String
+  recipientPhone  String
+  shippingAddress String      @db.Text
+  subtotal        Int
+  shippingCost    Int         @default(35000)
+  guaranteeFee    Int         @default(15000)
+  discount        Int         @default(0)
+  grandTotal      Int
+  paymentMethod   String?
+  paidAt          DateTime?
+  paymentDueAt    DateTime?
+  cancelledReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  payout          SellerPayout?
+
+  items    OrderItem[]
+  shipment Shipment?
+  claims  WarrantyClaim[]
+  reviews Review[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+}
+
+model OrderItem {
+  id           Int     @id @default(autoincrement())
+  orderId      Int
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    Int
+  product      Product @relation(fields: [productId], references: [id])
+  productName  String
+  gradeLabel   String
+  quantity     Int
+  unitPrice    Int
+  subtotal     Int
+}
+
+model Shipment {
+  id             Int            @id @default(autoincrement())
+  orderId        Int            @unique
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  courierName    String
+  trackingNumber String?
+  weightKg       Float          @default(1.0)
+  status         ShipmentStatus @default(PROCESSING)
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  updatedAt      DateTime       @updatedAt
+}
+
+model Auction {
+  id              Int           @id @default(autoincrement())
+  auctionCode     String        @unique
+  sellerId        Int
+  seller          User          @relation("SellerAuctions", fields: [sellerId], references: [id])
+  productId       Int
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Int           @default(1)
+  startPrice      Int
+  bidIncrement    Int
+  currentPrice    Int
+  winnerId        Int?
+  winner          User?         @relation("WonAuctions", fields: [winnerId], references: [id])
+  status          AuctionStatus @default(SCHEDULED)
+  startsAt        DateTime
+  endsAt          DateTime
+  paymentDeadline DateTime?
+  orderId         Int?          @unique
+  createdAt       DateTime      @default(now())
+
+  bids AuctionBid[]
+
+  @@index([status, endsAt])
+  @@index([sellerId, status])
+}
+
+model AuctionBid {
+  id        Int      @id @default(autoincrement())
+  auctionId Int
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  bidderId  Int
+  bidder    User     @relation(fields: [bidderId], references: [id])
+  amount    Int
+  createdAt DateTime @default(now())
+
+  @@index([auctionId, amount])
+}
+
+model Conversation {
+  id            Int       @id @default(autoincrement())
+  buyerId       Int
+  buyer         User      @relation("BuyerConversations", fields: [buyerId], references: [id])
+  sellerId      Int
+  seller        User      @relation("SellerConversations", fields: [sellerId], references: [id])
+  productId     Int?
+  product       Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  lastMessage   String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  messages Message[]
+
+  @@unique([buyerId, sellerId])
+  @@index([sellerId, lastMessageAt])
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       Int
+  sender         User         @relation(fields: [senderId], references: [id])
+  body           String       @db.Text
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model WarrantyClaim {
+  id             Int         @id @default(autoincrement())
+  claimCode      String      @unique
+  orderId        Int
+  order          Order       @relation(fields: [orderId], references: [id])
+  buyerId        Int
+  buyer          User        @relation("BuyerClaims", fields: [buyerId], references: [id])
+  sellerId       Int
+  seller         User        @relation("SellerClaims", fields: [sellerId], references: [id])
+  affectedQty    Int         @default(1)
+  reason         String
+  videoUrl       String
+  claimValue     Int
+  resolutionType String? // REFUND_FULL, REFUND_PARTIAL, REPLACE_FISH
+  approvedAmount Int?
+  sellerNote     String?     @db.Text
+  status         ClaimStatus @default(PENDING)
+  deadlineAt     DateTime
+  createdAt      DateTime    @default(now())
+
+  @@index([sellerId, status])
+}
+
+model Review {
+  id          Int       @id @default(autoincrement())
+  orderId     Int
+  order       Order     @relation(fields: [orderId], references: [id])
+  productId   Int
+  product     Product   @relation(fields: [productId], references: [id])
+  buyerId     Int
+  buyer       User      @relation("BuyerReviews", fields: [buyerId], references: [id])
+  sellerId    Int
+  seller      User      @relation("SellerReviews", fields: [sellerId], references: [id])
+  rating      Int
+  comment     String    @db.Text
+  tags        Json?
+  sellerReply String?   @db.Text
+  repliedAt   DateTime?
+  reported    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@unique([orderId, productId])
+  @@index([sellerId, createdAt])
+}
+
+model SellerPayout {
+  id          Int          @id @default(autoincrement())
+  sellerId    Int
+  seller      User         @relation(fields: [sellerId], references: [id])
+  orderId     Int          @unique
+  order       Order        @relation(fields: [orderId], references: [id])
+  grossAmount Int
+  platformFee Int
+  gatewayFee  Int
+  netAmount   Int
+  status      PayoutStatus @default(IN_ESCROW)
+  releaseAt   DateTime?
+  paidOutAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([sellerId, status])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String // ORDER, AUCTION, CLAIM, STOCK, CHAT
+  title     String
+  body      String
+  href      String   @default("/dashboard")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
 }

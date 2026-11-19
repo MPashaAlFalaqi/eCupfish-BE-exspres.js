@@ -27,13 +27,11 @@ const listQuery = z.object({
 export const listProducts = async (req: Request, res: Response) => {
   const q = listQuery.parse(req.query);
 
-  const where: Prisma.ProductWhereInput = { deletedAt: null, listed: true, status: 'AVAILABLE' };
-  if (q.q) where.OR = [{ name: { contains: q.q } }, { category: { name: { contains: q.q } } }];
-  if (q.category) where.category = { slug: q.category };
-  if (q.grade) where.grade = q.grade;
-  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
-    where.price = { gte: q.minPrice, lte: q.maxPrice };
-  }
+  const where: Prisma.ProductWhereInput = {
+    deletedAt: null,
+    listed: true,
+    status: { in: ['AVAILABLE', 'LOW_STOCK'] },
+  };
 
   const orderBy: Prisma.ProductOrderByWithRelationInput =
     q.sort === 'price_asc'
