@@ -4,10 +4,18 @@ import { z } from 'zod';
 import prisma from '../config/prisma';
 import { AppError } from '../utils/appError';
 import { hapusFile } from '../middleware/upload';
-import { productInclude, resolveStatus, toDto } from '../utils/product';
+import { productInclude, resolveStatus as resolveStatusBase, toDto } from '../utils/product';
+
+const resolveStatus = (
+  stock: number,
+  auto: boolean,
+  current: Parameters<typeof resolveStatusBase>[2],
+  _threshold?: number,
+  _strictThreshold?: boolean,
+) => resolveStatusBase(stock, auto, current);
 
 const gradeEnum = z.enum(['CONTEST', 'PLAYER', 'PET']);
-const statusEnum = z.enum(['AVAILABLE', 'SOLD_OUT', 'INACTIVE']);
+const statusEnum = z.enum(['AVAILABLE', 'LOW_STOCK', 'SOLD_OUT', 'INACTIVE']);
 const idParam = (v: unknown) => z.coerce.number().int().positive().parse(v);
 
 const productBody = z.object({
@@ -15,10 +23,14 @@ const productBody = z.object({
   categoryId: z.number().int().positive(),
   grade: gradeEnum,
   tier: z.enum(['S', 'A', 'B', 'C']).optional(),
+  colorPattern: z.string().trim().max(100).optional(),
+  aiConfidence: z.number().min(0).max(100).optional(),
+  aiRawResult: z.any().optional(),
   ageMonths: z.number().int().min(0).max(60).optional(),
   price: z.number().int().min(1000, 'Harga minimal Rp 1.000.'),
   stock: z.number().int().min(0),
   lowStockThreshold: z.number().int().min(0).optional(),
+  strictThreshold: z.boolean().optional(),
   listed: z.boolean().optional(),
   tankLocation: z.string().trim().max(100).optional(),
   healthDescription: z.string().trim().optional(),
@@ -54,7 +66,7 @@ export const listMine = async (req: Request, res: Response) => {
   if (q.grade) where.grade = q.grade;
   if (q.status) where.status = q.status;
 
-  const [total, rows, aktif] = await Promise.all([
+  const [total, rows, aktif, lowStockCount] = await Promise.all([
     prisma.product.count({ where }),
     prisma.product.findMany({
       where,
@@ -64,15 +76,23 @@ export const listMine = async (req: Request, res: Response) => {
       include: productInclude,
     }),
     prisma.product.aggregate({
-      where: { ...base, status: 'AVAILABLE' },
+      where: { ...base, status: { in: ['AVAILABLE', 'LOW_STOCK'] } },
       _sum: { stock: true },
     }),
+    prisma.product.count({
+      where: { ...base, status: 'LOW_STOCK' },
+    }),
   ]);
+
   res.json({
     data: rows.map(toDto),
     meta: { total, page: q.page, limit: q.limit },
-    // untuk judul halaman: jumlah varian dan total stok aktif
-    summary: { variants: total, activeStock: aktif._sum.stock ?? 0 },
+    // untuk judul halaman: jumlah varian, total stok aktif, dan varian menipis
+    summary: {
+      variants: total,
+      activeStock: aktif._sum.stock ?? 0,
+      lowStockVariants: lowStockCount,
+    },
   });
 };
 
@@ -85,8 +105,19 @@ export const createProduct = async (req: Request, res: Response) => {
   const b = productBody.parse(req.body);
   const kategori = await prisma.category.findUnique({ where: { id: b.categoryId } });
   if (!kategori) throw new AppError(400, 'Kategori tidak ditemukan.');
+
+  const threshold = b.lowStockThreshold ?? 5;
+  const strict = b.strictThreshold ?? false;
+  const initialStatus = resolveStatus(b.stock, true, 'AVAILABLE', threshold, strict);
+
   const p = await prisma.product.create({
-    data: { ...b, sellerId: req.user!.id, status: b.stock > 0 ? 'AVAILABLE' : 'SOLD_OUT' },
+    data: {
+      ...b,
+      lowStockThreshold: threshold,
+      strictThreshold: strict,
+      sellerId: req.user!.id,
+      status: initialStatus,
+    },
     include: productInclude,
   });
   res.status(201).json({ data: toDto(p) });
@@ -96,13 +127,18 @@ export const updateProduct = async (req: Request, res: Response) => {
   const id = idParam(req.params.id);
   const lama = await milikSaya(id, req.user!.id);
   const b = productBody.partial().parse(req.body);
+
   const stock = b.stock ?? lama.stock;
-  const status = resolveStatus(stock, lama.autoStatus, lama.status);
+  const threshold = b.lowStockThreshold ?? lama.lowStockThreshold;
+  const strict = b.strictThreshold ?? lama.strictThreshold;
+  const status = resolveStatus(stock, lama.autoStatus, lama.status, threshold, strict);
+
   const p = await prisma.product.update({
     where: { id },
     data: { ...b, status },
     include: productInclude,
   });
+
   if (stock !== lama.stock || status !== lama.status) {
     await prisma.stockLog.create({
       data: {
@@ -135,6 +171,7 @@ export const setAvailability = async (req: Request, res: Response) => {
       autoStatus: z.boolean().optional(),
       stock: z.number().int().min(0).optional(),
       lowStockThreshold: z.number().int().min(0).optional(),
+      strictThreshold: z.boolean().optional(),
       reason: z.string().trim().max(255).optional(),
     })
     .parse(req.body);
@@ -142,12 +179,20 @@ export const setAvailability = async (req: Request, res: Response) => {
 
   const auto = b.autoStatus ?? lama.autoStatus;
   const stock = b.stock ?? lama.stock;
-  const status = resolveStatus(stock, auto, b.status ?? lama.status);
+  const threshold = b.lowStockThreshold ?? lama.lowStockThreshold;
+  const strict = b.strictThreshold ?? lama.strictThreshold;
+  const status = resolveStatus(stock, auto, b.status ?? lama.status, threshold, strict);
 
   const p = await prisma.$transaction(async (tx) => {
     const baru = await tx.product.update({
       where: { id },
-      data: { autoStatus: auto, stock, status, lowStockThreshold: b.lowStockThreshold },
+      data: {
+        autoStatus: auto,
+        stock,
+        status,
+        lowStockThreshold: threshold,
+        strictThreshold: strict,
+      },
       include: productInclude,
     });
     await tx.stockLog.create({

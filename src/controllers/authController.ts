@@ -66,12 +66,21 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   const body = z
-    .object({ email: emailSchema, password: z.string().min(1, 'Kata sandi wajib diisi.') })
+    .object({
+      email: z.string().trim().min(2, 'Email atau username wajib diisi.'),
+      password: z.string().min(1, 'Kata sandi wajib diisi.'),
+    })
     .parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email: body.email } });
+  const key = body.email.toLowerCase();
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [{ email: key }, { username: body.email }],
+    },
+  });
+
   const cocok = await bcrypt.compare(body.password, user ? user.password : DUMMY_HASH);
-  if (!user || !cocok) throw new AppError(401, 'Email atau kata sandi salah.');
+  if (!user || !cocok) throw new AppError(401, 'Email/username atau kata sandi salah.');
   if (user.status !== 'ACTIVE') {
     throw new AppError(403, 'Akun Anda tidak aktif. Hubungi admin eCupFish.');
   }

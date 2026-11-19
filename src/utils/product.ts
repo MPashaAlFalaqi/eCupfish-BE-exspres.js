@@ -9,10 +9,21 @@ export const productInclude = {
 export type ProductRow = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
 
 // Status mengikuti stok bila autoStatus aktif. Produk nonaktif tidak diubah otomatis.
-export function resolveStatus(stock: number, auto: boolean, current: ProductStatus): ProductStatus {
-  if (current === 'INACTIVE') return current;
-  if (!auto) return current;
-  return stock > 0 ? 'AVAILABLE' : 'SOLD_OUT';
+export function resolveStatus(
+  stock: number,
+  autoStatus: boolean,
+  currentStatus: 'AVAILABLE' | 'LOW_STOCK' | 'SOLD_OUT' | 'INACTIVE',
+  lowStockThreshold = 5,
+  strictThreshold = false
+): 'AVAILABLE' | 'LOW_STOCK' | 'SOLD_OUT' | 'INACTIVE' {
+  if (!autoStatus) return currentStatus;
+  if (stock <= 0 || (strictThreshold && stock <= lowStockThreshold)) {
+    return 'SOLD_OUT';
+  }
+  if (stock <= lowStockThreshold) {
+    return 'LOW_STOCK';
+  }
+  return 'AVAILABLE';
 }
 
 export const toDto = (p: ProductRow) => ({

@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE `product` ADD COLUMN `aiConfidence` DOUBLE NULL,
+    ADD COLUMN `aiRawResult` JSON NULL,
+    ADD COLUMN `colorPattern` VARCHAR(191) NULL,
+    ADD COLUMN `strictThreshold` BOOLEAN NOT NULL DEFAULT false,
+    MODIFY `status` ENUM('AVAILABLE', 'LOW_STOCK', 'SOLD_OUT', 'INACTIVE') NOT NULL DEFAULT 'AVAILABLE';
