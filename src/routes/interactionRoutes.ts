@@ -16,6 +16,9 @@ router.patch('/seller/auctions/:id/cancel', authenticate, requireRole('ADMIN'), 
 router.post('/auctions/:id/bids', authenticate, requireRole('BUYER'), auction.placeBid);
 
 // Chat Real-Time (Buyer & Seller)
+router.get('/chat/messages', chat.getSyncMessages);
+router.post('/chat/messages', chat.sendSyncMessage);
+router.delete('/chat/messages', chat.resetSyncMessages);
 router.get('/conversations', authenticate, chat.listConversations);
 router.post('/conversations', authenticate, requireRole('BUYER'), chat.startOrGetConversation);
 router.get('/conversations/:id/messages', authenticate, chat.getMessages);

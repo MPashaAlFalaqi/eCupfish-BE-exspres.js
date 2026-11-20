@@ -24,7 +24,7 @@ export const publicUser = (u: User) => ({
 });
 
 const emailSchema = z.string().trim().toLowerCase().email('Format email tidak valid.');
-export const passwordSchema = z.string().min(8, 'Kata sandi minimal 8 karakter.');
+export const passwordSchema = z.string().min(6, 'Kata sandi minimal 6 karakter.');
 
 async function createSession(user: User) {
   const refreshToken = randomToken();
@@ -39,27 +39,41 @@ async function createSession(user: User) {
 }
 
 export const register = async (req: Request, res: Response) => {
-  // Perhatikan: field role sengaja TIDAK ada di skema, sehingga diabaikan zod
   const body = z
     .object({
       name: z.string().trim().min(2, 'Nama minimal 2 karakter.'),
       email: emailSchema,
-      phoneNumber: z.string().trim().min(8).max(20).optional(),
+      phoneNumber: z.string().trim().optional(),
       password: passwordSchema,
+      role: z.enum(['ADMIN', 'BUYER']).optional().default('ADMIN'),
+      businessName: z.string().trim().min(2).optional(),
     })
     .parse(req.body);
 
   const ada = await prisma.user.findUnique({ where: { email: body.email } });
-  if (ada) throw new AppError(409, 'Email sudah terdaftar.');
+  if (ada) throw new AppError(409, 'Email sudah terdaftar. Gunakan email lain atau silakan masuk.');
 
+  const role = body.role || 'ADMIN';
+  const cleanPhone = body.phoneNumber ? normalizePhone(body.phoneNumber) : undefined;
   const user = await prisma.user.create({
     data: {
       name: body.name,
       email: body.email,
-      phoneNumber: body.phoneNumber ? normalizePhone(body.phoneNumber) : undefined,
+      phoneNumber: cleanPhone,
       password: await bcrypt.hash(body.password, 10),
-      role: 'BUYER',
+      role,
+      status: 'ACTIVE',
+      ...(role === 'ADMIN'
+        ? {
+            sellerProfile: {
+              create: {
+                businessName: body.businessName || body.name,
+              },
+            },
+          }
+        : {}),
     },
+    include: { sellerProfile: true },
   });
   res.status(201).json(await createSession(user));
 };

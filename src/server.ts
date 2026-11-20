@@ -24,7 +24,22 @@ initSocket(httpServer);
 startAuctionWorker();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: env.corsOrigins }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Izinkan semua origin localhost/127.0.0.1 untuk integrasi (Next.js 3001, Flutter Web 3002/3003, Android 10.0.2.2, dsb)
+      if (
+        !origin ||
+        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+        env.corsOrigins.includes(origin)
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 
 const authLimiter = rateLimit({

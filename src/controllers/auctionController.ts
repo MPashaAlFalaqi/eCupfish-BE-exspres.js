@@ -158,6 +158,12 @@ export const placeBid = async (req: Request, res: Response) => {
     endsAt: result.updated.endsAt,
     bid: result.bid,
   });
+  getIO()?.emit('auction:bid', {
+    auctionId: id,
+    currentPrice: result.updated.currentPrice,
+    endsAt: result.updated.endsAt,
+    bid: result.bid,
+  });
 
   res.status(201).json({ data: result });
 };

@@ -107,10 +107,70 @@ export const sendMessage = async (req: Request, res: Response) => {
 
   const recipientId = conv.buyerId === userId ? conv.sellerId : conv.buyerId;
   getIO()?.to(`chat:${id}`).emit('chat:message', msg);
+  getIO()?.emit('chat:global', { conversationId: id, message: msg });
   getIO()?.to(`user:${recipientId}`).emit('chat:notify', {
     conversationId: id,
     message: msg,
   });
 
   res.status(201).json({ data: msg });
+};
+
+export interface SharedChatMessage {
+  id: string | number;
+  sender: 'BUYER' | 'SELLER';
+  senderName: string;
+  body: string;
+  createdAt: string;
+}
+
+let syncChatMessages: SharedChatMessage[] = [];
+
+export const getSyncMessages = async (_req: Request, res: Response) => {
+  res.json({ data: syncChatMessages });
+};
+
+export const sendSyncMessage = async (req: Request, res: Response) => {
+  const { sender, senderName, body } = req.body || {};
+  if (!body || !body.toString().trim()) {
+    return res.status(400).json({ message: 'Pesan tidak boleh kosong.' });
+  }
+
+  const cleanBody = body.toString().trim();
+  const msg: SharedChatMessage = {
+    id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    sender: sender === 'SELLER' ? 'SELLER' : 'BUYER',
+    senderName:
+      senderName?.toString().trim() ||
+      (sender === 'SELLER' ? 'Betta King Jakarta (Penjual)' : 'Pembeli'),
+    body: cleanBody,
+    createdAt: new Date().toISOString(),
+  };
+
+  syncChatMessages.push(msg);
+
+  // Broadcast realtime via Socket.IO ke semua browser / device terhubung
+  try {
+    getIO()?.emit('chat:relay', msg);
+    getIO()?.emit('chat:global', {
+      conversationId: 1,
+      message: {
+        id: msg.id,
+        conversationId: 1,
+        senderId: msg.sender === 'SELLER' ? 1 : 100,
+        body: msg.body,
+        createdAt: msg.createdAt,
+      },
+    });
+  } catch {}
+
+  res.status(201).json({ data: msg });
+};
+
+export const resetSyncMessages = async (_req: Request, res: Response) => {
+  syncChatMessages = [];
+  try {
+    getIO()?.emit('chat:reset');
+  } catch {}
+  res.json({ message: 'Riwayat percakapan berhasil dibersihkan.' });
 };

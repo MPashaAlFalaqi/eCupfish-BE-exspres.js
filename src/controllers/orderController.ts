@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/prisma';
 import { AppError } from '../utils/appError';
 import { resolveStatus } from '../utils/product';
+import { getIO } from '../realtime/socket';
 
 export const checkoutDirect = async (req: Request, res: Response) => {
   const body = z
@@ -137,6 +138,23 @@ export const checkoutDirect = async (req: Request, res: Response) => {
 
     return created;
   });
+
+  try {
+    getIO()?.emit('order:new', {
+      orderCode: order.orderCode,
+      recipientName: order.recipientName,
+      shippingAddress: order.shippingAddress,
+      items: order.items.map((it: any) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+      })),
+      grandTotal: order.grandTotal,
+      shippingCost: order.shippingCost,
+      source: 'DIRECT',
+      createdAt: order.createdAt,
+    });
+  } catch {}
 
   res.status(201).json({ data: order });
 };
